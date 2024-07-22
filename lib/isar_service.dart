@@ -58,7 +58,6 @@ class IsarService {
         directory: dir.path,
         inspector: true,
       );
-
       return isar;
     }
 
