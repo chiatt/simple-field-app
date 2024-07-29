@@ -1,3 +1,6 @@
+import 'dart:ffi';
+import 'dart:async';
+import 'package:location/location.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -5,7 +8,7 @@ import 'package:flutter_map_location_marker/flutter_map_location_marker.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:trackme/components/main_menu_drawer.dart';
 import 'package:trackme/isar_service.dart';
-import 'package:trackme/models/location.dart';
+import 'package:trackme/models/location.dart' as db;
 import 'package:trackme/tile_providers.dart';
 import 'package:trackme/utils/user_location.dart';
 import 'dart:math';
@@ -34,6 +37,9 @@ class _MapScreenState extends State<MapScreen> {
 
   LatLng? tappedCoords;
   Point<double>? tappedPoint;
+  bool collectingLocation = false;
+  Location location = Location();
+  late StreamSubscription<LocationData> locationSubscription;
 
   Future<List<Marker>> getMarkersFromDb() async {
     var locations = await isarService.getLocations();
@@ -63,24 +69,59 @@ class _MapScreenState extends State<MapScreen> {
             ));
   }
 
+  createLocation() async {
+      var userName = users[Random().nextInt(users.length)];
+      var userLoc = await userLocation.getUserLocation();
+      final newLocation = db.Location()
+        ..name = userName
+        ..x = userLoc?.longitude
+        ..y = userLoc?.latitude;
+      isarService.addNewLocation(newLocation);
+      setState(() => tappedPoint = null);
+      setState(() => collectingLocation = !collectingLocation);
+  }
+
+  recordTrack() async {
+      bool serviceEnabled;
+      serviceEnabled = await location.serviceEnabled();
+      location.enableBackgroundMode(enable: true);
+
+      if (!serviceEnabled) {
+        serviceEnabled = await location.requestService();
+        if (!serviceEnabled) {
+          return null;
+        }
+      }
+      collectingLocation = !collectingLocation;
+      var userName = users[Random().nextInt(users.length)];
+      location.changeSettings(
+          accuracy: LocationAccuracy.high,
+          interval: 100000, 
+          distanceFilter: 1
+      );
+      locationSubscription = location.onLocationChanged.listen((LocationData currentLocation) {
+        print(currentLocation.longitude);
+        final newLocation = db.Location()
+          ..name = userName
+          ..x = currentLocation.longitude
+          ..y = currentLocation.latitude;
+        if (collectingLocation) {
+          isarService.addNewLocation(newLocation);
+        }
+      });
+      print(collectingLocation);
+      if (collectingLocation == false) {
+        print('cancelling');
+        locationSubscription.pause();
+      } 
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
         appBar: AppBar(title: const Text('Map')),
         floatingActionButton: FloatingActionButton(
-            onPressed: () async {
-              print("pressed it");
-              var userName = users[Random().nextInt(users.length)];
-              var userLoc = await userLocation.getUserLocation();
-              print('things');
-              print(userLoc);
-              final newLocation = Location()
-                ..name = userName
-                ..x = userLoc?.longitude
-                ..y = userLoc?.latitude;
-              isarService.addNewLocation(newLocation);
-              setState(() => tappedPoint = null);
-            },
+            onPressed: recordTrack,
             child: const Icon(Icons.add)),
         body: FutureBuilder(
             future: getMarkersFromDb(),
