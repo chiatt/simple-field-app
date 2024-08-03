@@ -50,6 +50,12 @@ class IsarService {
     });
   }
 
+  Future<Location?> getLocationByName(String name) async {
+    final isar = await db;
+    final location = isar.locations.filter().nameEqualTo(name).findFirst();
+    return location;
+  }
+
   Future<Isar> openDB() async {
     if (Isar.instanceNames.isEmpty) {
       final dir = await getApplicationDocumentsDirectory();

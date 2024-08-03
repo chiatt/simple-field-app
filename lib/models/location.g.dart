@@ -25,7 +25,8 @@ const LocationSchema = CollectionSchema(
     r'polyline': PropertySchema(
       id: 1,
       name: r'polyline',
-      type: IsarType.floatList,
+      type: IsarType.objectList,
+      target: r'Coordinate',
     ),
     r'x': PropertySchema(
       id: 2,
@@ -45,7 +46,7 @@ const LocationSchema = CollectionSchema(
   idName: r'id',
   indexes: {},
   links: {},
-  embeddedSchemas: {},
+  embeddedSchemas: {r'Coordinate': CoordinateSchema},
   getId: _locationGetId,
   getLinks: _locationGetLinks,
   attach: _locationAttach,
@@ -65,9 +66,17 @@ int _locationEstimateSize(
     }
   }
   {
-    final value = object.polyline;
-    if (value != null) {
-      bytesCount += 3 + value.length * 4;
+    final list = object.polyline;
+    if (list != null) {
+      bytesCount += 3 + list.length * 3;
+      {
+        final offsets = allOffsets[Coordinate]!;
+        for (var i = 0; i < list.length; i++) {
+          final value = list[i];
+          bytesCount +=
+              CoordinateSchema.estimateSize(value, offsets, allOffsets);
+        }
+      }
     }
   }
   return bytesCount;
@@ -80,7 +89,12 @@ void _locationSerialize(
   Map<Type, List<int>> allOffsets,
 ) {
   writer.writeString(offsets[0], object.name);
-  writer.writeFloatList(offsets[1], object.polyline);
+  writer.writeObjectList<Coordinate>(
+    offsets[1],
+    allOffsets,
+    CoordinateSchema.serialize,
+    object.polyline,
+  );
   writer.writeFloat(offsets[2], object.x);
   writer.writeFloat(offsets[3], object.y);
 }
@@ -94,7 +108,12 @@ Location _locationDeserialize(
   final object = Location();
   object.id = id;
   object.name = reader.readStringOrNull(offsets[0]);
-  object.polyline = reader.readFloatList(offsets[1]);
+  object.polyline = reader.readObjectList<Coordinate>(
+    offsets[1],
+    CoordinateSchema.deserialize,
+    allOffsets,
+    Coordinate(),
+  );
   object.x = reader.readFloatOrNull(offsets[2]);
   object.y = reader.readFloatOrNull(offsets[3]);
   return object;
@@ -110,7 +129,12 @@ P _locationDeserializeProp<P>(
     case 0:
       return (reader.readStringOrNull(offset)) as P;
     case 1:
-      return (reader.readFloatList(offset)) as P;
+      return (reader.readObjectList<Coordinate>(
+        offset,
+        CoordinateSchema.deserialize,
+        allOffsets,
+        Coordinate(),
+      )) as P;
     case 2:
       return (reader.readFloatOrNull(offset)) as P;
     case 3:
@@ -423,72 +447,6 @@ extension LocationQueryFilter
     });
   }
 
-  QueryBuilder<Location, Location, QAfterFilterCondition>
-      polylineElementEqualTo(
-    double value, {
-    double epsilon = Query.epsilon,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.equalTo(
-        property: r'polyline',
-        value: value,
-        epsilon: epsilon,
-      ));
-    });
-  }
-
-  QueryBuilder<Location, Location, QAfterFilterCondition>
-      polylineElementGreaterThan(
-    double value, {
-    bool include = false,
-    double epsilon = Query.epsilon,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.greaterThan(
-        include: include,
-        property: r'polyline',
-        value: value,
-        epsilon: epsilon,
-      ));
-    });
-  }
-
-  QueryBuilder<Location, Location, QAfterFilterCondition>
-      polylineElementLessThan(
-    double value, {
-    bool include = false,
-    double epsilon = Query.epsilon,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.lessThan(
-        include: include,
-        property: r'polyline',
-        value: value,
-        epsilon: epsilon,
-      ));
-    });
-  }
-
-  QueryBuilder<Location, Location, QAfterFilterCondition>
-      polylineElementBetween(
-    double lower,
-    double upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    double epsilon = Query.epsilon,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.between(
-        property: r'polyline',
-        lower: lower,
-        includeLower: includeLower,
-        upper: upper,
-        includeUpper: includeUpper,
-        epsilon: epsilon,
-      ));
-    });
-  }
-
   QueryBuilder<Location, Location, QAfterFilterCondition> polylineLengthEqualTo(
       int length) {
     return QueryBuilder.apply(this, (query) {
@@ -733,7 +691,14 @@ extension LocationQueryFilter
 }
 
 extension LocationQueryObject
-    on QueryBuilder<Location, Location, QFilterCondition> {}
+    on QueryBuilder<Location, Location, QFilterCondition> {
+  QueryBuilder<Location, Location, QAfterFilterCondition> polylineElement(
+      FilterQuery<Coordinate> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'polyline');
+    });
+  }
+}
 
 extension LocationQueryLinks
     on QueryBuilder<Location, Location, QFilterCondition> {}
@@ -836,12 +801,6 @@ extension LocationQueryWhereDistinct
     });
   }
 
-  QueryBuilder<Location, Location, QDistinct> distinctByPolyline() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'polyline');
-    });
-  }
-
   QueryBuilder<Location, Location, QDistinct> distinctByX() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'x');
@@ -869,7 +828,8 @@ extension LocationQueryProperty
     });
   }
 
-  QueryBuilder<Location, List<double>?, QQueryOperations> polylineProperty() {
+  QueryBuilder<Location, List<Coordinate>?, QQueryOperations>
+      polylineProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'polyline');
     });
@@ -887,3 +847,241 @@ extension LocationQueryProperty
     });
   }
 }
+
+// **************************************************************************
+// IsarEmbeddedGenerator
+// **************************************************************************
+
+// coverage:ignore-file
+// ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
+
+const CoordinateSchema = Schema(
+  name: r'Coordinate',
+  id: -4102735455599796550,
+  properties: {
+    r'x': PropertySchema(
+      id: 0,
+      name: r'x',
+      type: IsarType.float,
+    ),
+    r'y': PropertySchema(
+      id: 1,
+      name: r'y',
+      type: IsarType.float,
+    )
+  },
+  estimateSize: _coordinateEstimateSize,
+  serialize: _coordinateSerialize,
+  deserialize: _coordinateDeserialize,
+  deserializeProp: _coordinateDeserializeProp,
+);
+
+int _coordinateEstimateSize(
+  Coordinate object,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  var bytesCount = offsets.last;
+  return bytesCount;
+}
+
+void _coordinateSerialize(
+  Coordinate object,
+  IsarWriter writer,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  writer.writeFloat(offsets[0], object.x);
+  writer.writeFloat(offsets[1], object.y);
+}
+
+Coordinate _coordinateDeserialize(
+  Id id,
+  IsarReader reader,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  final object = Coordinate(
+    reader.readFloatOrNull(offsets[0]),
+    reader.readFloatOrNull(offsets[1]),
+  );
+  return object;
+}
+
+P _coordinateDeserializeProp<P>(
+  IsarReader reader,
+  int propertyId,
+  int offset,
+  Map<Type, List<int>> allOffsets,
+) {
+  switch (propertyId) {
+    case 0:
+      return (reader.readFloatOrNull(offset)) as P;
+    case 1:
+      return (reader.readFloatOrNull(offset)) as P;
+    default:
+      throw IsarError('Unknown property with id $propertyId');
+  }
+}
+
+extension CoordinateQueryFilter
+    on QueryBuilder<Coordinate, Coordinate, QFilterCondition> {
+  QueryBuilder<Coordinate, Coordinate, QAfterFilterCondition> xIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'x',
+      ));
+    });
+  }
+
+  QueryBuilder<Coordinate, Coordinate, QAfterFilterCondition> xIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'x',
+      ));
+    });
+  }
+
+  QueryBuilder<Coordinate, Coordinate, QAfterFilterCondition> xEqualTo(
+    double? value, {
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'x',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<Coordinate, Coordinate, QAfterFilterCondition> xGreaterThan(
+    double? value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'x',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<Coordinate, Coordinate, QAfterFilterCondition> xLessThan(
+    double? value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'x',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<Coordinate, Coordinate, QAfterFilterCondition> xBetween(
+    double? lower,
+    double? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'x',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<Coordinate, Coordinate, QAfterFilterCondition> yIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'y',
+      ));
+    });
+  }
+
+  QueryBuilder<Coordinate, Coordinate, QAfterFilterCondition> yIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'y',
+      ));
+    });
+  }
+
+  QueryBuilder<Coordinate, Coordinate, QAfterFilterCondition> yEqualTo(
+    double? value, {
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'y',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<Coordinate, Coordinate, QAfterFilterCondition> yGreaterThan(
+    double? value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'y',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<Coordinate, Coordinate, QAfterFilterCondition> yLessThan(
+    double? value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'y',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<Coordinate, Coordinate, QAfterFilterCondition> yBetween(
+    double? lower,
+    double? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'y',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        epsilon: epsilon,
+      ));
+    });
+  }
+}
+
+extension CoordinateQueryObject
+    on QueryBuilder<Coordinate, Coordinate, QFilterCondition> {}

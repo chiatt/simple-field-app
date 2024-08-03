@@ -8,5 +8,16 @@ class Location {
   String? name;
   float? x;
   float? y;
-  List<float>? polyline;
+  List<Coordinate>? polyline = [];
+}
+
+@embedded
+class Coordinate {
+  Coordinate([
+    this.x,
+    this.y,
+  ]);
+
+  float? x;
+  float? y;
 }
