@@ -1,4 +1,3 @@
-import 'dart:ffi';
 import 'dart:async';
 import 'package:location/location.dart';
 import 'package:flutter/material.dart';
@@ -41,8 +40,9 @@ class _MapScreenState extends State<MapScreen> {
   Location location = Location();
   late StreamSubscription<LocationData> locationSubscription;
 
-  Future<List<Marker>> getMarkersFromDb() async {
+  Future<(List<Marker>, List<Polyline>)> getMarkersFromDb() async {
     var locations = await isarService.getLocations();
+    List<Polyline> polylines = [];
     var markers = [
       for (var location in locations)
         Marker(
@@ -56,7 +56,20 @@ class _MapScreenState extends State<MapScreen> {
           ),
         )
     ];
-    return markers;
+    for (final location in locations) {
+        if (location.polyline != null && location.polyline!.isNotEmpty) {
+          List<LatLng> latlngs = [];
+          for (var coord in location.polyline!) {
+            latlngs.add(LatLng(coord.y!.toDouble(), coord.x!.toDouble()));
+          }
+          polylines.add(          
+            Polyline(
+            points: latlngs,
+            color: Colors.blue
+          ));
+        }
+    }
+    return (markers, polylines);
   }
 
   @override
@@ -69,19 +82,18 @@ class _MapScreenState extends State<MapScreen> {
             ));
   }
 
-  createLocation() async {
-      var userName = users[Random().nextInt(users.length)];
+  Future<void> createLocation(String name) async {
       var userLoc = await userLocation.getUserLocation();
       final newLocation = db.Location()
-        ..name = userName
+        ..name = name
         ..x = userLoc?.longitude
         ..y = userLoc?.latitude;
       isarService.addNewLocation(newLocation);
       setState(() => tappedPoint = null);
-      setState(() => collectingLocation = !collectingLocation);
   }
-
+  List<db.Coordinate> coordinates = [];
   recordTrack() async {
+      setState(() => collectingLocation = !collectingLocation);
       bool serviceEnabled;
       serviceEnabled = await location.serviceEnabled();
       location.enableBackgroundMode(enable: true);
@@ -92,28 +104,28 @@ class _MapScreenState extends State<MapScreen> {
           return null;
         }
       }
-      collectingLocation = !collectingLocation;
       var userName = users[Random().nextInt(users.length)];
       location.changeSettings(
           accuracy: LocationAccuracy.high,
           interval: 100000, 
           distanceFilter: 1
       );
-      locationSubscription = location.onLocationChanged.listen((LocationData currentLocation) {
-        print(currentLocation.longitude);
-        final newLocation = db.Location()
-          ..name = userName
-          ..x = currentLocation.longitude
-          ..y = currentLocation.latitude;
-        if (collectingLocation) {
-          isarService.addNewLocation(newLocation);
-        }
-      });
-      print(collectingLocation);
-      if (collectingLocation == false) {
-        print('cancelling');
-        locationSubscription.pause();
-      } 
+      if (collectingLocation) {
+        await createLocation("start");
+        locationSubscription = location.onLocationChanged.listen((LocationData currentLocation) {
+          if (collectingLocation) {
+            final coordinate = db.Coordinate()
+              ..x = currentLocation.longitude
+              ..y = currentLocation.latitude;
+            coordinates.add(coordinate);
+          }
+        });
+      } else {
+        final startLocation = await isarService.getLocationByName("start");
+        startLocation?.polyline = coordinates;
+        await isarService.updateLocation(startLocation!.id, startLocation);
+        coordinates = [];
+      }
   }
 
   @override
@@ -122,12 +134,13 @@ class _MapScreenState extends State<MapScreen> {
         appBar: AppBar(title: const Text('Map')),
         floatingActionButton: FloatingActionButton(
             onPressed: recordTrack,
+            backgroundColor: collectingLocation ? Colors.green : Colors.blue,
             child: const Icon(Icons.add)),
         body: FutureBuilder(
             future: getMarkersFromDb(),
             builder: (BuildContext context, snapshot) {
               if (snapshot.hasData) {
-                var markers = snapshot.data;
+                var mapData = snapshot.data;
                 return Stack(
                   children: [
                     FlutterMap(
@@ -146,7 +159,8 @@ class _MapScreenState extends State<MapScreen> {
                       ),
                       children: [
                         landscapeTileLayer,
-                        MarkerLayer(markers: markers!),
+                        PolylineLayer(polylines: mapData!.$2),
+                        MarkerLayer(markers: mapData.$1),
                         CurrentLocationLayer(),
                         if (tappedCoords != null)
                           MarkerLayer(
@@ -183,6 +197,32 @@ class _MapScreenState extends State<MapScreen> {
                 return const CircularProgressIndicator();
               }
             }),
+        bottomNavigationBar: BottomAppBar(
+          child: Row(
+            children: <Widget>[
+              IconButton(
+                tooltip: 'Open navigation menu',
+                icon: const Icon(Icons.home),
+                onPressed: () {},
+              ),
+              IconButton(
+                tooltip: 'Search',
+                icon: const Icon(Icons.search),
+                onPressed: () {},
+              ),
+              IconButton(
+                tooltip: 'Download',
+                icon: const Icon(Icons.download),
+                onPressed: () {},
+              ),
+              IconButton(
+                tooltip: 'Open navigation menu',
+                icon: const Icon(Icons.menu),
+                onPressed: () {},
+              ),
+            ],
+          ),
+        ),
         drawer: const MainMenu());
   }
 }
