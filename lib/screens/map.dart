@@ -33,6 +33,9 @@ class _MapScreenState extends State<MapScreen> {
     "Ray Bradbury"
   ];
   var locations = List<Location>;
+  
+  // var locationName = users[Random().nextInt(users.length)];
+  final locationName = DateTime.now().toString();
 
   LatLng? tappedCoords;
   Point<double>? tappedPoint;
@@ -82,13 +85,20 @@ class _MapScreenState extends State<MapScreen> {
             ));
   }
 
-  Future<void> createLocation(String name) async {
+  Future<void> updateOrCreateLocation(String name) async {
+      var existingLocation = await isarService.getLocationByName(name);
       var userLoc = await userLocation.getUserLocation();
-      final newLocation = db.Location()
-        ..name = name
-        ..x = userLoc?.longitude
-        ..y = userLoc?.latitude;
-      isarService.addNewLocation(newLocation);
+      if (existingLocation == null) {
+        final newLocation = db.Location()
+          ..name = name
+          ..x = userLoc?.longitude
+          ..y = userLoc?.latitude;
+        isarService.addNewLocation(newLocation);
+      } else {
+        existingLocation.x = userLoc?.longitude;
+        existingLocation.y = userLoc?.latitude;
+        await isarService.updateLocation(existingLocation.id, existingLocation);
+      }
       setState(() => tappedPoint = null);
   }
   List<db.Coordinate> coordinates = [];
@@ -104,16 +114,19 @@ class _MapScreenState extends State<MapScreen> {
           return null;
         }
       }
-      var userName = users[Random().nextInt(users.length)];
+
       location.changeSettings(
           accuracy: LocationAccuracy.high,
           interval: 100000, 
           distanceFilter: 1
       );
+
+      print(locationName);
       if (collectingLocation) {
-        await createLocation("start");
+        await updateOrCreateLocation(locationName);
         locationSubscription = location.onLocationChanged.listen((LocationData currentLocation) {
           if (collectingLocation) {
+            print('adding coordinates');
             final coordinate = db.Coordinate()
               ..x = currentLocation.longitude
               ..y = currentLocation.latitude;
@@ -121,9 +134,13 @@ class _MapScreenState extends State<MapScreen> {
           }
         });
       } else {
-        final startLocation = await isarService.getLocationByName("start");
-        startLocation?.polyline = coordinates;
-        await isarService.updateLocation(startLocation!.id, startLocation);
+        final startLocation = await isarService.getLocationByName(locationName);
+        if (startLocation != null) {
+          startLocation.polyline = coordinates;
+          await isarService.updateLocation(startLocation.id, startLocation);
+        } else {
+          print("Could not find $locationName");
+        }
         coordinates = [];
       }
   }
