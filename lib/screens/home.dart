@@ -1,16 +1,46 @@
 import 'package:flutter/material.dart';
 import 'package:trackme/isar_service.dart';
 import '../components/main_menu_drawer.dart';
+import 'package:geobase/geobase.dart';
 
 final isarService = IsarService();
 
-Future<List<String>> getTracesFromDb() async {
-  return [for (var l in await isarService.getLocations()) l.name.toString()];
+class LocationSummary {
+  late String name;
+  late double distance;
 }
 
-class HomeScreen extends StatelessWidget {
-  /// Constructs a [HomeScreen]
+Future<List<LocationSummary>> getTracesFromDb() async {
+  var locations = await isarService.getLocations();
+  List<LocationSummary> results = [];
+
+  for (var l in locations) {
+      List<double> latlngs = [];
+      if (l.polyline != null && l.polyline!.isNotEmpty) {
+        for (var coord in l.polyline!) {
+          latlngs.add(coord.x!.toDouble());
+          latlngs.add(coord.x!.toDouble());
+        }
+        var line = LineString.build(latlngs);
+        final forward = WGS84.webMercator.forward;
+        var line3857 = line.project(forward);
+        final locationSummary = LocationSummary()
+          ..name = l.name.toString()
+          ..distance = line3857.length2D();
+        results.add(locationSummary);
+      }
+  }
+  return results;
+}
+
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -26,12 +56,12 @@ class HomeScreen extends StatelessWidget {
               itemCount: locations!.length,
               itemBuilder: (BuildContext context, int index) {
                 return Container(
-                  height: 50,
+                  height: 70,
                   margin: const EdgeInsets.all(2),
-                  color: const Color.fromARGB(255, 219, 255, 252),
+                  color: const Color.fromARGB(255, 40, 108, 160),
                   child: Center(
-                    child: Text(locations[index],
-                      style: const TextStyle(fontSize: 18),
+                    child: Text('Date: ${locations[index].name}\nMeters: ${locations[index].distance.toStringAsFixed(1)}',
+                      style: const TextStyle(fontSize: 18, color: Colors.white),
                     )
                   ),
                 );
